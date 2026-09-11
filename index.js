@@ -1,46 +1,47 @@
-const express = require('express');
-const axios = require('axios');
-const app = express();
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const qrcode = require('qrcode-terminal');
 
-app.use(express.json());
+async function connectToWhatsApp() {
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+    const sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: false
+    });
 
-// Webhook Verification
-app.get('/webhook', (req, res) => {
-    const mode = req.query['hub.mode'];
-    const token = req.query['hub.verify_token'];
-    const challenge = req.query['hub.challenge'];
+    sock.ev.on('creds.update', saveCreds);
 
-    if (mode && token === VERIFY_TOKEN) {
-        res.status(200).send(challenge);
-    } else {
-        res.sendStatus(403);
-    }
-});
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr } = update;
 
-// Incoming Message Handling
-app.post('/webhook', async (req, res) => {
-    const body = req.body;
+        if (qr) {
+            console.log('\n--- SCAN THIS QR CODE WITH YOUR WHATSAPP ---\n');
+            qrcode.generate(qr, { small: true });
+        }
 
-    if (body.object) {
-        if (
-            body.entry &&
-            body.entry[0].changes &&
-            body.entry[0].changes[0].value.messages &&
-            body.entry[0].changes[0].value.messages[0]
-        ) {
-            const message = body.entry[0].changes[0].value.messages[0];
-            const from = message.from;
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Connection closed. Reconnecting...', shouldReconnect);
+            if (shouldReconnect) {
+                connectToWhatsApp();
+            }
+        } else if (connection === 'open') {
+            console.log('✅ WhatsApp Bot is Successfully Connected!');
+        }
+    });
 
-            if (message.type === 'text') {
-                const userText = message.text.body.trim();
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+        if (type !== 'notify') return;
 
-                // 1: Namaz Timings (Image 16)
-                if (userText === '1') {
-                    const msg1 = `🕌 *اوقات - مسجد اللہ اکبر*
+        for (const msg of messages) {
+            if (!msg.message || msg.key.fromMe) continue;
+
+            const from = msg.key.remoteJid;
+            const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
+
+            // 1: Namaz Timings
+            if (text === '1') {
+                const msg1 = `🕌 *اوقات - مسجد اللہ اکبر*
 
 فجر: 4:45 AM
 ظہر: 1:15 PM
@@ -51,22 +52,22 @@ app.post('/webhook', async (req, res) => {
 جمعہ: 1:30 PM
 
 اللہ قبول فرمائے آمین 🤲`;
-                    await sendTextMessage(from, msg1);
+                await sock.sendMessage(from, { text: msg1 });
 
-                // 2: Juma Ka Bayan (Image 17)
-                } else if (userText === '2') {
-                    const msg2 = `*جمعہ کا بیان*
+            // 2: Juma Ka Bayan
+            } else if (text === '2') {
+                const msg2 = `*جمعہ کا بیان*
 
 ہر جمعہ بعد نماز بیان ہوتا ہے۔
 موضوع: [انسانیت سے محبت]
 
 بیان سننے کے لیے مسجد تشریف لائیں
 جزاک اللہ`;
-                    await sendTextMessage(from, msg2);
+                await sock.sendMessage(from, { text: msg2 });
 
-                // 3: Chanda / Atiyat (Image 18)
-                } else if (userText === '3') {
-                    const msg3 = `*مسجد اللہ اکبر - چندہ / عطیات*
+            // 3: Chanda / Atiyat
+            } else if (text === '3') {
+                const msg3 = `*مسجد اللہ اکبر - چندہ / عطیات*
 
 اللہ آپ کے تعاون کو قبول فرمائے آمین 🤲
 
@@ -80,57 +81,36 @@ Meezan bank
 2801-0100828427
 Jazz cash
 0321-7050502`;
-                    await sendTextMessage(from, msg3);
+                await sock.sendMessage(from, { text: msg3 });
 
-                // Default / Baqi Menu
-                } else {
-                    await sendMainMenu(from);
-                }
-            }
-        }
-        res.sendStatus(200);
-    } else {
-        res.sendStatus(404);
-    }
-});
+            // 4: Contact Info
+            } else if (text === '4') {
+                const msg4 = `📞 *رابطہ معلومات - مسجد اللہ اکبر*
 
-// Urdu Main Menu
-async function sendMainMenu(to) {
-    const menuText = `🕌 *مسجد اللہ اکبر میں خوش آمدید*
+کسی بھی معلومات یا رہنمائی کے لیے رابطہ کریں:
+
+📱 *رابطہ نمبر:* 0321-7050502 (Imtiaz Akbar)
+
+جزاک اللہ خیر 🤲`;
+                await sock.sendMessage(from, { text: msg4 });
+
+            // Default / Menu
+            } else {
+                const menuText = `🕌 *مسجد اللہ اکبر میں خوش آمدید*
 
 براہِ مہربانی نیچے دیے گئے نمبر میں سے کوئی ایک بھیجیں:
 
 1️⃣ نماز کا ٹائم
 2️⃣ جمعہ کا بیان
 3️⃣ چندہ / عطیات
-4️⃣ امام صاحب کا نمبر
+4️⃣ امام صاحب کا نمبر / رابطہ
 5️⃣ لوکیشن
 
 اللہ آپ کو جزائے خیر دے`;
-
-    await sendTextMessage(to, menuText);
-}
-
-// Helper Function
-async function sendTextMessage(to, text) {
-    try {
-        await axios({
-            method: 'POST',
-            url: `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`,
-            headers: {
-                'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
-                'Content-Type': 'application/json',
-            },
-            data: {
-                messaging_product: 'whatsapp',
-                to: to,
-                text: { body: text }
+                await sock.sendMessage(from, { text: menuText });
             }
-        });
-    } catch (error) {
-        console.error('Error sending message:', error.response ? error.response.data : error.message);
-    }
+        }
+    });
 }
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+connectToWhatsApp();
