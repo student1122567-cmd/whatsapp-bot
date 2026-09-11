@@ -36,10 +36,56 @@ app.post('/webhook', async (req, res) => {
             const from = message.from;
 
             if (message.type === 'text') {
-                await sendInteractiveButtons(from);
-            } else if (message.type === 'interactive') {
-                const buttonId = message.interactive.button_reply.id;
-                await handleButtonClick(from, buttonId);
+                const userText = message.text.body.trim();
+
+                // 1: Namaz Timings (Image 16)
+                if (userText === '1') {
+                    const msg1 = `🕌 *اوقات - مسجد اللہ اکبر*
+
+فجر: 4:45 AM
+ظہر: 1:15 PM
+عصر: 5:30 PM
+مغرب: 6:45 PM
+عشاء: 8:00 PM
+
+جمعہ: 1:30 PM
+
+اللہ قبول فرمائے آمین 🤲`;
+                    await sendTextMessage(from, msg1);
+
+                // 2: Juma Ka Bayan (Image 17)
+                } else if (userText === '2') {
+                    const msg2 = `*جمعہ کا بیان*
+
+ہر جمعہ بعد نماز بیان ہوتا ہے۔
+موضوع: [انسانیت سے محبت]
+
+بیان سننے کے لیے مسجد تشریف لائیں
+جزاک اللہ`;
+                    await sendTextMessage(from, msg2);
+
+                // 3: Chanda / Atiyat (Image 18)
+                } else if (userText === '3') {
+                    const msg3 = `*مسجد اللہ اکبر - چندہ / عطیات*
+
+اللہ آپ کے تعاون کو قبول فرمائے آمین 🤲
+
+آپ ان طریقوں سے چندہ دے سکتے ہیں:
+
+1. مسجد میں آ کر خود دیں
+
+اللہ آپ کو اس کا بہترین اجر دے
+Imtiaz akbar
+Meezan bank
+2801-0100828427
+Jazz cash
+0321-7050502`;
+                    await sendTextMessage(from, msg3);
+
+                // Default / Baqi Menu
+                } else {
+                    await sendMainMenu(from);
+                }
             }
         }
         res.sendStatus(200);
@@ -48,48 +94,25 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
-async function sendInteractiveButtons(to) {
-    try {
-        await axios({
-            method: 'POST',
-            url: `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`,
-            headers: {
-                'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
-                'Content-Type': 'application/json',
-            },
-            data: {
-                messaging_product: 'whatsapp',
-                recipient_type: 'individual',
-                to: to,
-                type: 'interactive',
-                interactive: {
-                    type: 'button',
-                    body: { text: 'Please select:' },
-                    action: {
-                        buttons: [
-                            { type: 'reply', reply: { id: 'btn_balance', title: 'Balance Inquiry' } },
-                            { type: 'reply', reply: { id: 'btn_statement', title: 'Account Statement' } },
-                            { type: 'reply', reply: { id: 'btn_main_menu', title: 'Main Menu' } }
-                        ]
-                    }
-                }
-            }
-        });
-    } catch (error) {
-        console.error('Error sending buttons:', error.response ? error.response.data : error.message);
-    }
+// Urdu Main Menu
+async function sendMainMenu(to) {
+    const menuText = `🕌 *مسجد اللہ اکبر میں خوش آمدید*
+
+براہِ مہربانی نیچے دیے گئے نمبر میں سے کوئی ایک بھیجیں:
+
+1️⃣ نماز کا ٹائم
+2️⃣ جمعہ کا بیان
+3️⃣ چندہ / عطیات
+4️⃣ امام صاحب کا نمبر
+5️⃣ لوکیشن
+
+اللہ آپ کو جزائے خیر دے`;
+
+    await sendTextMessage(to, menuText);
 }
 
-async function handleButtonClick(to, buttonId) {
-    let responseText = '';
-    if (buttonId === 'btn_balance') {
-        responseText = 'Aap ka mojooda balance: PKR 25,000/--';
-    } else if (buttonId === 'btn_statement') {
-        responseText = 'Aap ka account statement aap ke email par bhej diya gaya hai.';
-    } else if (buttonId === 'btn_main_menu') {
-        responseText = 'Aap Main Menu par aagaye hain.';
-    }
-
+// Helper Function
+async function sendTextMessage(to, text) {
     try {
         await axios({
             method: 'POST',
@@ -101,11 +124,11 @@ async function handleButtonClick(to, buttonId) {
             data: {
                 messaging_product: 'whatsapp',
                 to: to,
-                text: { body: responseText }
+                text: { body: text }
             }
         });
     } catch (error) {
-        console.error('Error sending reply:', error.response ? error.response.data : error.message);
+        console.error('Error sending message:', error.response ? error.response.data : error.message);
     }
 }
 
